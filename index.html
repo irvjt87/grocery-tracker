@@ -139,7 +139,7 @@
     .section-title { font-size: 1rem; margin-bottom: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
     .grid { 
       display: grid; 
-      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); 
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); 
       gap: 12px; 
       margin-bottom: 32px; 
     }
@@ -155,7 +155,27 @@
       gap: 12px;
     }
     .card-header { display: flex; justify-content: space-between; align-items: flex-start; }
-    .item-name { font-size: 1.05rem; font-weight: 600; color: var(--text-main); margin-bottom: 4px; }
+    .item-title-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap; }
+    
+    /* Bin/Location Inline Input */
+    .bin-input {
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      color: #60a5fa;
+      font-weight: 700;
+      font-size: 0.8rem;
+      padding: 3px 6px;
+      border-radius: 6px;
+      width: 60px;
+      text-align: center;
+      text-transform: uppercase;
+      outline: none;
+    }
+    .bin-input:focus {
+      border-color: var(--accent-blue);
+    }
+
+    .item-name { font-size: 1.05rem; font-weight: 600; color: var(--text-main); }
     .item-store { font-size: 0.75rem; color: #60a5fa; background: #1e3a8a; padding: 2px 8px; border-radius: 12px; display: inline-block; }
     .btn-delete { background: none; border: none; color: #64748b; font-size: 1.2rem; cursor: pointer; padding: 0 4px; }
 
@@ -259,12 +279,15 @@
     </div>
   </header>
 
-  <!-- Add Item Form Panel -->
   <div class="add-panel" id="addPanel">
     <h2>Add New Household Item</h2>
     <div class="form-group">
+      <label for="newItemBin">Bin / Location (Optional)</label>
+      <input type="text" id="newItemBin" placeholder="e.g. A14, Fridge, Pantry-1">
+    </div>
+    <div class="form-group">
       <label for="newItemName">Item Name</label>
-      <input type="text" id="newItemName" placeholder="e.g. Whole Milk, Eggs, Tallow">
+      <input type="text" id="newItemName" placeholder="e.g. Whole Milk, Eggs, Flaxseed">
     </div>
     <div class="form-group">
       <label for="newItemStore">Store / Source</label>
@@ -283,7 +306,7 @@
     </div>
   </div>
 
-  <input type="text" id="searchFilter" class="search-bar" placeholder="🔍 Search pantry/fridge items..." oninput="render()">
+  <input type="text" id="searchFilter" class="search-bar" placeholder="🔍 Search pantry, bin location, or store..." oninput="render()">
 
   <div class="section-title">Pantry, Fridge & Household Inventory</div>
   <div class="grid" id="inventoryGrid"></div>
@@ -293,11 +316,11 @@
 
   <script>
     const DEFAULT_GROCERIES = [
-      { id: '1', name: 'Whole Milk', store: 'Walmart', status: 'plenty', qty: 1, price: 3.50 },
-      { id: '2', name: 'Eggs', store: 'Walmart', status: 'plenty', qty: 2, price: 3.00 },
-      { id: '3', name: 'Ground Beef 80/20', store: 'Marks Meat Processing', status: 'plenty', qty: 5, price: 4.50 },
-      { id: '4', name: 'Butter', store: 'Walmart', status: 'plenty', qty: 2, price: 4.00 },
-      { id: '5', name: 'Block Cheese', store: 'Sunshine Foods', status: 'plenty', qty: 1, price: 3.80 }
+      { id: '1', bin: 'A1', name: 'Whole Milk', store: 'Walmart', status: 'plenty', qty: 1, price: 3.50 },
+      { id: '2', bin: 'A2', name: 'Eggs', store: 'Walmart', status: 'soon', qty: 2, price: 3.00 },
+      { id: '3', bin: 'B1', name: 'Ground Beef 80/20', store: 'Marks Meat Processing', status: 'out', qty: 5, price: 4.50 },
+      { id: '4', bin: 'A14', name: 'Flaxseed', store: 'Dutch Country', status: 'out', qty: 1, price: 4.00 },
+      { id: '5', bin: 'B2', name: 'Butter', store: 'Walmart', status: 'plenty', qty: 2, price: 4.00 }
     ];
 
     function safeGetStorage(key) {
@@ -350,6 +373,7 @@
     }
 
     function addNewItem() {
+      const binInput = document.getElementById('newItemBin');
       const nameInput = document.getElementById('newItemName');
       const storeInput = document.getElementById('newItemStore');
       
@@ -357,6 +381,7 @@
 
       const newItem = {
         id: Date.now().toString(),
+        bin: binInput.value.trim().toUpperCase(),
         name: nameInput.value.trim(),
         store: storeInput.value.trim() || 'General Store',
         status: 'plenty',
@@ -365,9 +390,18 @@
       };
 
       items.push(newItem);
+      binInput.value = '';
       nameInput.value = '';
       toggleAddPanel();
       saveState();
+    }
+
+    function updateItemBin(id, newBin) {
+      const item = items.find(i => i.id === id);
+      if (item) {
+        item.bin = newBin.trim().toUpperCase();
+        saveState();
+      }
     }
 
     function deleteItem(id) {
@@ -426,13 +460,42 @@
       if (!grid) return;
 
       const query = (document.getElementById('searchFilter')?.value || '').toLowerCase();
-      const filteredItems = items.filter(i => i.name.toLowerCase().includes(query) || i.store.toLowerCase().includes(query));
+      
+      // 1. Filter items by search query
+      let filteredItems = items.filter(i => 
+        i.name.toLowerCase().includes(query) || 
+        i.store.toLowerCase().includes(query) ||
+        (i.bin || '').toLowerCase().includes(query)
+      );
 
+      // 2. Strict 3-tier sort: Status (Out -> Soon -> Plenty) -> Bin -> Item Name
+      const statusPriority = { 'out': 0, 'soon': 1, 'plenty': 2 };
+
+      filteredItems.sort((a, b) => {
+        // Priority 1: Status
+        const pA = statusPriority[a.status] ?? 3;
+        const pB = statusPriority[b.status] ?? 3;
+        if (pA !== pB) return pA - pB;
+
+        // Priority 2: Bin / Location (alphanumeric compare)
+        const binA = (a.bin || '').trim();
+        const binB = (b.bin || '').trim();
+        const binCompare = binA.localeCompare(binB, undefined, { numeric: true, sensitivity: 'base' });
+        if (binCompare !== 0) return binCompare;
+
+        // Priority 3: Item Name
+        return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      });
+
+      // Render Grid Cards
       grid.innerHTML = filteredItems.map(item => `
         <div class="card">
           <div class="card-header">
             <div>
-              <div class="item-name">${item.name}</div>
+              <div class="item-title-row">
+                <input type="text" class="bin-input" value="${item.bin || ''}" placeholder="BIN" onchange="updateItemBin('${item.id}', this.value)" title="Tap to edit Bin/Location">
+                <span class="item-name">${item.name}</span>
+              </div>
               <div class="item-store">${item.store}</div>
             </div>
             <button class="btn-delete" onclick="deleteItem('${item.id}')">&times;</button>
@@ -485,7 +548,7 @@
             ${grouped[store].map(item => `
               <li class="shop-item">
                 <input type="checkbox">
-                <span class="shop-item-name">${item.name}</span>
+                <span class="shop-item-name">${item.bin ? `[${item.bin}] ` : ''}${item.name}</span>
                 <span class="badge ${item.status === 'soon' ? 'badge-soon' : 'badge-out'}">${item.status === 'soon' ? 'Soon' : 'Out'}</span>
                 
                 <div class="price-calc-group">
@@ -509,8 +572,18 @@
       render();
     }
 
+    // Force purge old Service Workers and clear cache storage to fix domain collisions
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js');
+      navigator.serviceWorker.getRegistrations().then(registrations => {
+        for (let registration of registrations) {
+          registration.unregister();
+        }
+      });
+      if ('caches' in window) {
+        caches.keys().then(names => {
+          for (let name of names) caches.delete(name);
+        });
+      }
     }
   </script>
 </body>
